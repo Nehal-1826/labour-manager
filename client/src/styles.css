@@ -565,6 +565,59 @@ textarea.input { resize: vertical; }
 .btn-danger { background: var(--red); border-color: var(--red); color: #fff; }
 .btn-danger:hover:not(:disabled) { background: #b91c1c; border-color: #b91c1c; }
 
+/* ============ PWA update banner ============ */
+.pwa-banner {
+  position: fixed;
+  left: 50%;
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: #1f2937;
+  color: #f8fafc;
+  border-radius: 999px;
+  padding: 10px 14px 10px 20px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.35);
+  font-size: 0.88rem;
+  max-width: calc(100vw - 32px);
+}
+.pwa-banner-text { font-weight: 600; }
+.pwa-banner-actions { display: flex; gap: 8px; }
+.pwa-banner .btn-primary { background: #6366f1; border-color: #6366f1; }
+.pwa-banner .btn-ghost { color: #c7d2fe; }
+.pwa-banner .btn-ghost:hover { background: rgba(255, 255, 255, 0.08); }
+
+/* ============ mobile refinement ============ */
+@media (max-width: 640px) {
+  .container { padding: 18px 12px 56px; }
+  h1 { font-size: 1.3rem; }
+  .page-head { gap: 10px; }
+  .page-head .btn { width: 100%; justify-content: center; }
+  .stat-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .stat-card { padding: 13px 14px; }
+  .stat-value { font-size: 1.35rem; }
+  .labour-grid { grid-template-columns: 1fr; }
+  .table-card { overflow-x: auto; }
+  .table { min-width: 660px; }
+  .period-grid { grid-template-columns: repeat(2, 1fr); }
+  .att-summary { gap: 16px; padding: 12px 14px; }
+  .att-summary .att-total { margin-left: 0; text-align: left; }
+  .att-controls { gap: 10px; }
+  .seg { flex-wrap: wrap; }
+  .att-note { width: 100%; }
+  .att-result { align-items: flex-start; }
+  .att-actions { flex-direction: row; }
+  .rates-strip { gap: 18px; padding: 14px 16px; }
+  .rates-strip .rate-item.accent { margin-left: 0; text-align: left; }
+  .date-picker { width: 100%; justify-content: space-between; }
+  .date-picker input { flex: 1; }
+  .modal-card { padding: 18px; }
+  .login-card { padding: 22px 20px; }
+  .pwa-banner { left: 12px; right: 12px; transform: none; }
+}
+
 /* ============ states ============ */
 .spinner-wrap { display: flex; justify-content: center; padding: 70px 0; }
 .spinner {

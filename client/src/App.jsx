@@ -6,6 +6,7 @@ import Labours from './components/Labours';
 import Profile from './components/Profile';
 import Reports from './components/Reports';
 import Login from './components/Login';
+import PwaUpdatePrompt from './components/PwaUpdatePrompt';
 import { Spinner } from './components/ui';
 import { todayYMD, fmtDate } from './utils';
 
@@ -83,6 +84,8 @@ export default function App() {
         {route.view === 'reports' && <Reports />}
         {route.view === 'profile' && <Profile id={route.params.id} nav={nav} />}
       </main>
+
+      <PwaUpdatePrompt />
     </div>
   );
 }
