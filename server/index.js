@@ -1,9 +1,14 @@
 const express = require('express');
 const db = require('./db');
+const requireAdmin = require('./auth');
 const { buildLabourReport, buildMonthlyReport, buildYearlyReport } = require('./reports');
 
 const app = express();
 app.use(express.json());
+
+// every /api route requires a verified administrator session (Bearer token).
+// route handlers below are untouched — they only ever see authenticated requests.
+app.use('/api', requireAdmin);
 
 const PORT = process.env.PORT || 4000;
 

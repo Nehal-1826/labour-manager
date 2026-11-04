@@ -4,10 +4,11 @@
   "private": true,
   "main": "index.js",
   "scripts": {
-    "dev": "node --watch index.js",
-    "start": "node index.js"
+    "dev": "node --watch --env-file-if-exists=../.env index.js",
+    "start": "node --env-file-if-exists=../.env index.js"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.118.0",
     "docx": "^9.15.2",
     "express": "^5.1.0"
   }

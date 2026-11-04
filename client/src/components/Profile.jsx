@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api } from '../api';
+import { api, downloadFile } from '../api';
 import {
   fmtMoney, fmtDays, fmtDate, fmtRange, dayLabel, baseTone, periodText,
 } from '../utils';
@@ -8,6 +8,8 @@ import { Spinner, ErrorBox, Badge, Avatar } from './ui';
 export default function Profile({ id, nav }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
+  const [downloadError, setDownloadError] = useState('');
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     setData(null);
@@ -19,13 +21,22 @@ export default function Profile({ id, nav }) {
 
   const { labour, periods, working_period, history } = data;
 
+  const downloadReport = () => {
+    setDownloadError('');
+    setDownloading(true);
+    downloadFile(`/api/labours/${labour.id}/report/docx`)
+      .catch((e) => setDownloadError(e.message))
+      .finally(() => setDownloading(false));
+  };
+
   return (
     <div className="page">
+      {downloadError && <ErrorBox message={downloadError} />}
       <div className="page-toolbar">
         <button className="btn btn-ghost" onClick={() => nav('labours')}>← Back to Labours</button>
-        <a className="btn btn-primary" href={`/api/labours/${labour.id}/report/docx`}>
-          ⬇ Download Word Report
-        </a>
+        <button className="btn btn-primary" onClick={downloadReport} disabled={downloading}>
+          {downloading ? 'Preparing…' : '⬇ Download Word Report'}
+        </button>
       </div>
 
       {/* header card */}

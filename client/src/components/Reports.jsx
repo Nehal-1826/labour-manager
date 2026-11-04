@@ -1,14 +1,24 @@
 import { useEffect, useState } from 'react';
-import { api } from '../api';
+import { api, downloadFile } from '../api';
 import { todayYMD } from '../utils';
 import { Spinner, ErrorBox, Empty } from './ui';
 
 export default function Reports() {
   const [labours, setLabours] = useState(null);
   const [error, setError] = useState('');
+  const [downloadError, setDownloadError] = useState('');
+  const [downloading, setDownloading] = useState(false);
   const [labourId, setLabourId] = useState('');
   const [month, setMonth] = useState(todayYMD().slice(0, 7)); // YYYY-MM
   const [year, setYear] = useState(String(new Date().getFullYear()));
+
+  const handleDownload = (path) => {
+    setDownloadError('');
+    setDownloading(true);
+    downloadFile(path)
+      .catch((e) => setDownloadError(e.message))
+      .finally(() => setDownloading(false));
+  };
 
   useEffect(() => {
     api.labours().then(setLabours).catch((e) => setError(e.message));
@@ -25,6 +35,9 @@ export default function Reports() {
           <p className="page-sub">Download wage records as Word documents (.docx)</p>
         </div>
       </div>
+
+      {error && <ErrorBox message={error} />}
+      {downloadError && <ErrorBox message={downloadError} />}
 
       {labours.length === 0 ? (
         <Empty icon="📄" title="Nothing to report yet"
@@ -50,9 +63,10 @@ export default function Reports() {
                 ))}
               </select>
               {labourId ? (
-                <a className="btn btn-primary" href={`/api/labours/${labourId}/report/docx`}>
-                  ⬇ Download Word
-                </a>
+                <button className="btn btn-primary" disabled={downloading}
+                  onClick={() => handleDownload(`/api/labours/${labourId}/report/docx`)}>
+                  {downloading ? 'Preparing…' : '⬇ Download Word'}
+                </button>
               ) : (
                 <button className="btn btn-primary" disabled>Select a labour first</button>
               )}
@@ -73,10 +87,10 @@ export default function Reports() {
                 value={month}
                 onChange={(e) => e.target.value && setMonth(e.target.value)}
               />
-              <a className="btn btn-primary"
-                href={`/api/reports/monthly/${month.slice(0, 4)}/${month.slice(5, 7)}/docx`}>
-                ⬇ Download Word
-              </a>
+              <button className="btn btn-primary" disabled={downloading}
+                onClick={() => handleDownload(`/api/reports/monthly/${month.slice(0, 4)}/${month.slice(5, 7)}/docx`)}>
+                {downloading ? 'Preparing…' : '⬇ Download Word'}
+              </button>
             </div>
           </div>
 
@@ -96,13 +110,13 @@ export default function Reports() {
                 value={year}
                 onChange={(e) => setYear(e.target.value)}
               />
-              <a
+              <button
                 className={`btn btn-primary ${Number(year) >= 2000 && Number(year) <= 2100 ? '' : 'disabled-anchor'}`}
-                href={Number(year) >= 2000 && Number(year) <= 2100 ? `/api/reports/yearly/${year}/docx` : undefined}
-                onClick={(e) => { if (!(Number(year) >= 2000 && Number(year) <= 2100)) e.preventDefault(); }}
+                disabled={downloading || !(Number(year) >= 2000 && Number(year) <= 2100)}
+                onClick={() => handleDownload(`/api/reports/yearly/${year}/docx`)}
               >
-                ⬇ Download Word
-              </a>
+                {downloading ? 'Preparing…' : '⬇ Download Word'}
+              </button>
             </div>
           </div>
         </div>
