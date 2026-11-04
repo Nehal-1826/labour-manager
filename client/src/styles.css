@@ -508,6 +508,63 @@ textarea.input { resize: vertical; }
 
 .empty-card { padding: 26px; text-align: center; }
 
+.success-box {
+  background: var(--green-soft);
+  color: var(--green);
+  border: 1px solid #bfe6cd;
+  border-radius: 10px;
+  padding: 11px 15px;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+/* ============ remove labour modal ============ */
+.card-plain {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: #f8fafd;
+}
+.card-plain .labour-role { font-size: 0.82rem; color: var(--muted); }
+.remove-lead { font-weight: 600; font-size: 0.92rem; margin: 2px 0 -4px; }
+.remove-option {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 13px 15px;
+  cursor: pointer;
+  font: inherit;
+  transition: all 0.15s;
+}
+.remove-option:hover:not(:disabled) { border-color: #b9c4da; background: #f6f8fc; }
+.remove-option:disabled { opacity: 0.5; cursor: not-allowed; }
+.remove-option-title { font-weight: 700; font-size: 0.94rem; }
+.remove-option-desc { font-size: 0.8rem; color: var(--muted); line-height: 1.45; }
+.option-danger:hover:not(:disabled) { background: var(--red-soft); border-color: #f0b4b4; }
+.option-danger .remove-option-title { color: var(--red); }
+.confirm-warning {
+  background: var(--red-soft);
+  border: 1px solid #f0b4b4;
+  border-radius: 12px;
+  padding: 14px 16px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+.confirm-warning strong { color: var(--red); }
+.confirm-warning p { margin: 6px 0 0; }
+.confirm-note { color: var(--muted); }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
+.btn-danger { background: var(--red); border-color: var(--red); color: #fff; }
+.btn-danger:hover:not(:disabled) { background: #b91c1c; border-color: #b91c1c; }
+
 /* ============ states ============ */
 .spinner-wrap { display: flex; justify-content: center; padding: 70px 0; }
 .spinner {

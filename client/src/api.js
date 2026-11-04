@@ -65,6 +65,8 @@ export const api = {
   labourProfile: (id) => request(`/api/labours/${id}`),
   addLabour: (body) => request('/api/labours', { method: 'POST', body: JSON.stringify(body) }),
   updateLabour: (id, body) => request(`/api/labours/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  setLabourActive: (id, active) =>
+    request(`/api/labours/${id}/active`, { method: 'PATCH', body: JSON.stringify({ active }) }),
   deleteLabour: (id) => request(`/api/labours/${id}`, { method: 'DELETE' }),
   attendance: (date) => request(`/api/attendance/${date}`),
   markAttendance: (body) => request('/api/attendance', { method: 'POST', body: JSON.stringify(body) }),

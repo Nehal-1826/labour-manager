@@ -2,11 +2,14 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { fmtMoney, fmtDate, fmtDays, todayYMD } from '../utils';
 import { Modal, Spinner, ErrorBox, Empty, Badge, Avatar, Field } from './ui';
+import RemoveLabourModal from './RemoveLabourModal';
 
 export default function Labours({ nav }) {
   const [labours, setLabours] = useState(null);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [editing, setEditing] = useState(null); // null | 'new' | labour object
+  const [removing, setRemoving] = useState(null); // labour object passed to the Remove Labour flow
 
   const load = () =>
     api.labours().then(setLabours).catch((e) => setError(e.message));
@@ -14,16 +17,6 @@ export default function Labours({ nav }) {
   useEffect(() => {
     load();
   }, []);
-
-  const remove = async (l) => {
-    if (!window.confirm(`Delete ${l.name}? All their attendance records will also be removed.`)) return;
-    try {
-      await api.deleteLabour(l.id);
-      load();
-    } catch (e) {
-      setError(e.message);
-    }
-  };
 
   if (error && !labours) return <ErrorBox message={error} />;
   if (!labours) return <Spinner />;
@@ -41,6 +34,7 @@ export default function Labours({ nav }) {
       </div>
 
       {error && <ErrorBox message={error} />}
+      {notice && <div className="success-box">✓ {notice}</div>}
 
       {labours.length === 0 ? (
         <Empty icon="👷" title="No labours registered yet"
@@ -90,7 +84,9 @@ export default function Labours({ nav }) {
                     <div className="row-actions">
                       <button className="btn btn-ghost btn-sm" onClick={() => nav('profile', { id: l.id })}>View</button>
                       <button className="btn btn-ghost btn-sm" onClick={() => setEditing(l)}>Edit</button>
-                      <button className="btn btn-danger-ghost btn-sm" onClick={() => remove(l)}>Delete</button>
+                      <button className="btn btn-danger-ghost btn-sm" onClick={() => { setError(''); setNotice(''); setRemoving(l); }}>
+                        Remove Labour
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -106,6 +102,23 @@ export default function Labours({ nav }) {
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
+            load();
+          }}
+        />
+      )}
+
+      {removing && (
+        <RemoveLabourModal
+          labour={removing}
+          onClose={() => setRemoving(null)}
+          onDeactivated={(id) => {
+            setRemoving(null);
+            setNotice(`${labours.find((l) => l.id === id)?.name ?? 'Labour'} deactivated — the record, attendance and wage history are preserved. Reactivate via Edit.`);
+            load();
+          }}
+          onRemoved={(id) => {
+            setRemoving(null);
+            setNotice(`${labours.find((l) => l.id === id)?.name ?? 'Labour'} permanently removed, including all attendance records.`);
             load();
           }}
         />

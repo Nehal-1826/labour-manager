@@ -297,6 +297,19 @@ app.put('/api/labours/:id', async (req, res) => {
   res.json(rows[0]);
 });
 
+// deactivate / reactivate a labour WITHOUT touching any other data:
+// the record, attendance history, wage history and reports are preserved.
+// NOTE: the active column is INTEGER (0/1) — send integers, not booleans.
+app.patch('/api/labours/:id/active', async (req, res) => {
+  const active = req.body.active ? 1 : 0;
+  const { rows, rowCount } = await query(
+    'UPDATE labours SET active = $1 WHERE id = $2 RETURNING id, name, active',
+    [active, req.params.id]
+  );
+  if (rowCount === 0) return res.status(404).json({ error: 'Labour not found' });
+  res.json(rows[0]);
+});
+
 app.delete('/api/labours/:id', async (req, res) => {
   const { rowCount } = await query('DELETE FROM labours WHERE id = $1', [req.params.id]);
   if (rowCount === 0) return res.status(404).json({ error: 'Labour not found' });

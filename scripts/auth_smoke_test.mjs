@@ -162,9 +162,23 @@ try {
     });
     check('PUT /labours/:id -> 200', updated.status === 200 && updated.payload.wage_full === 500, `status ${updated.status}`);
 
-    const dash = await call('/dashboard');
-    check('GET /dashboard after writes -> 200', dash.ok && typeof dash.payload.stats.today_wages === 'number');
-  }
+  // ---- deactivate / reactivate (Remove Labour modal backend) ----
+  // active is stored as INTEGER 0/1 — the API contract returns 0/1
+  const deact = await call(`/labours/${tid}/active`, { method: 'PATCH', body: { active: false } });
+  check('PATCH /labours/:id/active {false} -> 200, active = 0 (deactivated)',
+    deact.ok && Number(deact.payload.active) === 0, `status ${deact.status}`);
+  const stillThere = await call(`/labours/${tid}`);
+  check('deactivated labour keeps record + attendance history',
+    stillThere.ok && Number(stillThere.payload.labour.active) === 0 && stillThere.payload.history.length > 0,
+    `${stillThere.payload?.history?.length ?? 0} history rows preserved`);
+
+  const reactivated = await call(`/labours/${tid}/active`, { method: 'PATCH', body: { active: true } });
+  check('PATCH {true} -> active = 1 (reactivated)', reactivated.ok && Number(reactivated.payload.active) === 1,
+    `status ${reactivated.status}`);
+
+  const dash = await call('/dashboard');
+  check('GET /dashboard after writes -> 200', dash.ok && typeof dash.payload.stats.today_wages === 'number');
+}
 
   // ---- 5. Word report downloads ----
   console.log('\n== word report downloads ==');
