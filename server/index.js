@@ -1,5 +1,5 @@
 const express = require('express');
-const db = require('./db');
+const { query } = require('./db');
 const requireAdmin = require('./auth');
 const { buildLabourReport, buildMonthlyReport, buildYearlyReport } = require('./reports');
 
@@ -7,7 +7,8 @@ const app = express();
 app.use(express.json());
 
 // every /api route requires a verified administrator session (Bearer token).
-// route handlers below are untouched — they only ever see authenticated requests.
+// route handlers below are untouched in logic — they only ever see
+// authenticated requests.
 app.use('/api', requireAdmin);
 
 const PORT = process.env.PORT || 4000;
@@ -79,7 +80,7 @@ function cleanLabourInput(body) {
     phone: String(body.phone || '').trim(),
     role: String(body.role || '').trim(),
     join_date: isValidDate(body.join_date) ? body.join_date : todayStr(),
-    active: body.active === undefined ? 1 : body.active ? 1 : 0,
+    active: body.active === undefined ? 1 : (body.active ? 1 : 0), // Supabase column is INTEGER 0/1
     wage_full,
     wage_half: num(body.wage_half) ?? round2(wage_full / 2),
     wage_quarter: num(body.wage_quarter) ?? round2(wage_full / 4),
@@ -115,63 +116,41 @@ function workingPeriod(labour, today) {
   };
 }
 
-/* ---------------- labour routes ---------------- */
-
-app.get('/api/labours', (req, res) => {
+/* ---------------- shared profile aggregation ----------------
+ * used by both the profile API and the Word report export */
+async function collectProfile(labour) {
   const today = todayStr();
-  const rows = db
-    .prepare(
-      `SELECT l.*,
-        (SELECT COALESCE(SUM(amount), 0)      FROM attendance WHERE labour_id = l.id) AS total_earned,
-        (SELECT COALESCE(SUM(days_worked), 0) FROM attendance WHERE labour_id = l.id) AS total_days,
-        (SELECT amount      FROM attendance WHERE labour_id = l.id AND date = ?) AS today_amount,
-        (SELECT days_worked FROM attendance WHERE labour_id = l.id AND date = ?) AS today_days
-      FROM labours l
-      ORDER BY l.active DESC, l.name COLLATE NOCASE ASC`
-    )
-    .all(today, today);
-  res.json(rows);
-});
 
-app.post('/api/labours', (req, res) => {
-  const { error, data } = cleanLabourInput(req.body);
-  if (error) return res.status(400).json({ error });
-  const info = db
-    .prepare(
-      `INSERT INTO labours (name, phone, role, join_date, active, wage_full, wage_half, wage_quarter, notes)
-       VALUES (@name, @phone, @role, @join_date, @active, @wage_full, @wage_half, @wage_quarter, @notes)`
-    )
-    .run(data);
-  res.status(201).json(db.prepare('SELECT * FROM labours WHERE id = ?').get(info.lastInsertRowid));
-});
-
-// shared aggregation used by both the profile API and the Word report export
-function collectProfile(labour) {
-  const today = todayStr();
-  const sumRange = db.prepare(
+  const sumRange =
     `SELECT COALESCE(SUM(days_worked), 0) AS days, COALESCE(SUM(amount), 0) AS amount, COUNT(*) AS entries
-     FROM attendance WHERE labour_id = ? AND date >= ? AND date <= ?`
-  );
-  const sumAll = db.prepare(
+     FROM attendance WHERE labour_id = $1 AND date >= $2 AND date <= $3`;
+  const sumAll =
     `SELECT COALESCE(SUM(days_worked), 0) AS days, COALESCE(SUM(amount), 0) AS amount, COUNT(*) AS entries
-     FROM attendance WHERE labour_id = ?`
-  );
+     FROM attendance WHERE labour_id = $1`;
 
   const [wf, wt] = weekRange(today);
   const [mf, mt] = monthRange(today);
   const [yf, yt] = yearRange(today);
 
-  const history = db
-    .prepare('SELECT * FROM attendance WHERE labour_id = ? ORDER BY date DESC, id DESC')
-    .all(labour.id);
+  const [week, month, year, all] = await Promise.all([
+    query(sumRange, [labour.id, wf, wt]),
+    query(sumRange, [labour.id, mf, mt]),
+    query(sumRange, [labour.id, yf, yt]),
+    query(sumAll, [labour.id]),
+  ]);
+
+  const { rows: history } = await query(
+    'SELECT * FROM attendance WHERE labour_id = $1 ORDER BY date DESC, id DESC',
+    [labour.id]
+  );
 
   return {
     labour,
     periods: {
-      week: { label: 'This Week', from: wf, to: wt, ...sumRange.get(labour.id, wf, wt) },
-      month: { label: 'This Month', from: mf, to: mt, ...sumRange.get(labour.id, mf, mt) },
-      year: { label: `Year ${yt.slice(0, 4)}`, from: yf, to: yt, ...sumRange.get(labour.id, yf, yt) },
-      all: { label: 'All Time', ...sumAll.get(labour.id) },
+      week: { label: 'This Week', from: wf, to: wt, ...week.rows[0] },
+      month: { label: 'This Month', from: mf, to: mt, ...month.rows[0] },
+      year: { label: `Year ${yt.slice(0, 4)}`, from: yf, to: yt, ...year.rows[0] },
+      all: { label: 'All Time', ...all.rows[0] },
     },
     working_period: workingPeriod(labour, today),
     history,
@@ -179,10 +158,40 @@ function collectProfile(labour) {
   };
 }
 
-app.get('/api/labours/:id', (req, res) => {
-  const labour = db.prepare('SELECT * FROM labours WHERE id = ?').get(req.params.id);
-  if (!labour) return res.status(404).json({ error: 'Labour not found' });
-  const profile = collectProfile(labour);
+/* ---------------- labour routes ---------------- */
+
+app.get('/api/labours', async (req, res) => {
+  const today = todayStr();
+  const { rows } = await query(
+    `SELECT l.*,
+      (SELECT COALESCE(SUM(amount), 0)      FROM attendance WHERE labour_id = l.id) AS total_earned,
+      (SELECT COALESCE(SUM(days_worked), 0) FROM attendance WHERE labour_id = l.id) AS total_days,
+      (SELECT amount      FROM attendance WHERE labour_id = l.id AND date = $1) AS today_amount,
+      (SELECT days_worked FROM attendance WHERE labour_id = l.id AND date = $1) AS today_days
+    FROM labours l
+    ORDER BY l.active DESC, LOWER(l.name) ASC`,
+    [today]
+  );
+  res.json(rows);
+});
+
+app.post('/api/labours', async (req, res) => {
+  const { error, data } = cleanLabourInput(req.body);
+  if (error) return res.status(400).json({ error });
+  const { rows } = await query(
+    `INSERT INTO labours (name, phone, role, join_date, active, wage_full, wage_half, wage_quarter, notes, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+     RETURNING *`,
+    [data.name, data.phone, data.role, data.join_date, data.active,
+     data.wage_full, data.wage_half, data.wage_quarter, data.notes]
+  );
+  res.status(201).json(rows[0]);
+});
+
+app.get('/api/labours/:id', async (req, res) => {
+  const { rows } = await query('SELECT * FROM labours WHERE id = $1', [req.params.id]);
+  if (rows.length === 0) return res.status(404).json({ error: 'Labour not found' });
+  const profile = await collectProfile(rows[0]);
   res.json({
     labour: profile.labour,
     periods: profile.periods,
@@ -209,107 +218,114 @@ function sendDocx(res, bufferPromise, filename) {
 }
 
 // report for one labour (all-time)
-app.get('/api/labours/:id/report/docx', (req, res) => {
-  const labour = db.prepare('SELECT * FROM labours WHERE id = ?').get(req.params.id);
-  if (!labour) return res.status(404).json({ error: 'Labour not found' });
-  const p = collectProfile(labour);
+app.get('/api/labours/:id/report/docx', async (req, res) => {
+  const { rows } = await query('SELECT * FROM labours WHERE id = $1', [req.params.id]);
+  if (rows.length === 0) return res.status(404).json({ error: 'Labour not found' });
+  const p = await collectProfile(rows[0]);
   const doc = buildLabourReport({
     labour: p.labour, periods: p.periods, working_period: p.working_period,
     history: p.history, today: p.today,
   });
-  sendDocx(res, doc, `${sanitizeFilename(labour.name)}_Wage_Report_${p.today}.docx`);
+  sendDocx(res, doc, `${sanitizeFilename(p.labour.name)}_Wage_Report_${p.today}.docx`);
 });
 
 // total records for one month (YYYY/MM)
-app.get('/api/reports/monthly/:year/:month/docx', (req, res) => {
+app.get('/api/reports/monthly/:year/:month/docx', async (req, res) => {
   const year = Number(req.params.year);
   const month = Number(req.params.month);
   if (!(year >= 2000 && year <= 2100) || !(month >= 1 && month <= 12)) {
     return res.status(400).json({ error: 'Invalid year or month' });
   }
   const [from, to] = monthRange(`${year}-${pad(month)}-01`);
-  const summary = db.prepare(
+  const summary = await query(
     `SELECT l.id, l.name, l.role, COUNT(*) AS entries,
             COALESCE(SUM(a.days_worked), 0) AS days, COALESCE(SUM(a.amount), 0) AS wages
      FROM attendance a JOIN labours l ON l.id = a.labour_id
-     WHERE a.date BETWEEN ? AND ?
-     GROUP BY l.id ORDER BY l.name COLLATE NOCASE`
-  ).all(from, to);
-  const details = db.prepare(
+     WHERE a.date BETWEEN $1 AND $2
+     GROUP BY l.id ORDER BY LOWER(l.name)`,
+    [from, to]
+  );
+  const details = await query(
     `SELECT a.*, l.name AS labour_name, l.role AS labour_role
      FROM attendance a JOIN labours l ON l.id = a.labour_id
-     WHERE a.date BETWEEN ? AND ?
-     ORDER BY l.name COLLATE NOCASE, a.date`
-  ).all(from, to);
-  const doc = buildMonthlyReport({ year, month, from, to, summary, details, today: todayStr() });
+     WHERE a.date BETWEEN $1 AND $2
+     ORDER BY LOWER(l.name), a.date`,
+    [from, to]
+  );
+  const doc = buildMonthlyReport({
+    year, month, from, to, summary: summary.rows, details: details.rows, today: todayStr(),
+  });
   sendDocx(res, doc, `Monthly_Wage_Report_${year}_${pad(month)}.docx`);
 });
 
 // total records for one year (YYYY)
-app.get('/api/reports/yearly/:year/docx', (req, res) => {
+app.get('/api/reports/yearly/:year/docx', async (req, res) => {
   const year = Number(req.params.year);
   if (!(year >= 2000 && year <= 2100)) return res.status(400).json({ error: 'Invalid year' });
   const [from, to] = yearRange(`${year}-01-01`);
-  const summary = db.prepare(
+  const summary = await query(
     `SELECT l.id, l.name, l.role, COUNT(*) AS entries,
             COALESCE(SUM(a.days_worked), 0) AS days, COALESCE(SUM(a.amount), 0) AS wages
      FROM attendance a JOIN labours l ON l.id = a.labour_id
-     WHERE a.date BETWEEN ? AND ?
-     GROUP BY l.id ORDER BY l.name COLLATE NOCASE`
-  ).all(from, to);
-  const monthWise = db.prepare(
-    `SELECT substr(date, 1, 7) AS ym, COUNT(*) AS entries,
+     WHERE a.date BETWEEN $1 AND $2
+     GROUP BY l.id ORDER BY LOWER(l.name)`,
+    [from, to]
+  );
+  const monthWise = await query(
+    `SELECT to_char(date, 'YYYY-MM') AS ym, COUNT(*) AS entries,
             COALESCE(SUM(days_worked), 0) AS days, COALESCE(SUM(amount), 0) AS wages
-     FROM attendance WHERE date BETWEEN ? AND ?
-     GROUP BY ym ORDER BY ym`
-  ).all(from, to);
-  const doc = buildYearlyReport({ year, from, to, summary, monthWise, today: todayStr() });
+     FROM attendance WHERE date BETWEEN $1 AND $2
+     GROUP BY to_char(date, 'YYYY-MM') ORDER BY ym`,
+    [from, to]
+  );
+  const doc = buildYearlyReport({ year, from, to, summary: summary.rows, monthWise: monthWise.rows, today: todayStr() });
   sendDocx(res, doc, `Yearly_Wage_Report_${year}.docx`);
 });
 
-app.put('/api/labours/:id', (req, res) => {
-  const id = req.params.id;
-  const existing = db.prepare('SELECT id FROM labours WHERE id = ?').get(id);
-  if (!existing) return res.status(404).json({ error: 'Labour not found' });
+app.put('/api/labours/:id', async (req, res) => {
   const { error, data } = cleanLabourInput(req.body);
   if (error) return res.status(400).json({ error });
-  db.prepare(
-    `UPDATE labours SET name=@name, phone=@phone, role=@role, join_date=@join_date, active=@active,
-       wage_full=@wage_full, wage_half=@wage_half, wage_quarter=@wage_quarter, notes=@notes
-     WHERE id=@id`
-  ).run({ ...data, id });
-  res.json(db.prepare('SELECT * FROM labours WHERE id = ?').get(id));
+  const { rows, rowCount } = await query(
+    `UPDATE labours SET name=$1, phone=$2, role=$3, join_date=$4, active=$5,
+       wage_full=$6, wage_half=$7, wage_quarter=$8, notes=$9
+     WHERE id=$10
+     RETURNING *`,
+    [data.name, data.phone, data.role, data.join_date, data.active ? 1 : 0,
+     data.wage_full, data.wage_half, data.wage_quarter, data.notes, req.params.id]
+  );
+  if (rowCount === 0) return res.status(404).json({ error: 'Labour not found' });
+  res.json(rows[0]);
 });
 
-app.delete('/api/labours/:id', (req, res) => {
-  const info = db.prepare('DELETE FROM labours WHERE id = ?').run(req.params.id);
-  if (info.changes === 0) return res.status(404).json({ error: 'Labour not found' });
+app.delete('/api/labours/:id', async (req, res) => {
+  const { rowCount } = await query('DELETE FROM labours WHERE id = $1', [req.params.id]);
+  if (rowCount === 0) return res.status(404).json({ error: 'Labour not found' });
   res.json({ ok: true });
 });
 
 /* ---------------- attendance routes ---------------- */
 
 // all attendance records for one date
-app.get('/api/attendance/:date', (req, res) => {
+app.get('/api/attendance/:date', async (req, res) => {
   const date = req.params.date;
   if (!isValidDate(date)) return res.status(400).json({ error: 'Invalid date (expected YYYY-MM-DD)' });
-  const records = db
-    .prepare(
-      `SELECT a.*, l.name AS labour_name FROM attendance a
-       JOIN labours l ON l.id = a.labour_id WHERE a.date = ?`
-    )
-    .all(date);
-  res.json({ date, records });
+  const { rows } = await query(
+    `SELECT a.*, l.name AS labour_name FROM attendance a
+     JOIN labours l ON l.id = a.labour_id WHERE a.date = $1`,
+    [date]
+  );
+  res.json({ date, records: rows });
 });
 
 // mark / update attendance for a labour on a date (upsert)
-app.post('/api/attendance', (req, res) => {
+app.post('/api/attendance', async (req, res) => {
   const { labour_id, date } = req.body;
   const note = String(req.body.note || '').trim();
   if (!isValidDate(date)) return res.status(400).json({ error: 'Invalid date (expected YYYY-MM-DD)' });
 
-  const labour = db.prepare('SELECT * FROM labours WHERE id = ?').get(labour_id);
-  if (!labour) return res.status(404).json({ error: 'Labour not found' });
+  const { rows: labourRows } = await query('SELECT * FROM labours WHERE id = $1', [labour_id]);
+  if (labourRows.length === 0) return res.status(404).json({ error: 'Labour not found' });
+  const labour = labourRows[0];
 
   const base = Number(req.body.base);
   const extra = Number(req.body.extra || 0);
@@ -320,43 +336,47 @@ app.post('/api/attendance', (req, res) => {
   const days_worked = round2(base + extra);
   const amount = computeAmount(labour, base, extra);
 
-  db.prepare(
+  const { rows } = await query(
     `INSERT INTO attendance (labour_id, date, base, extra, days_worked, amount, note)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(labour_id, date) DO UPDATE SET
-       base = excluded.base, extra = excluded.extra,
-       days_worked = excluded.days_worked, amount = excluded.amount, note = excluded.note`
-  ).run(labour.id, date, base, extra, days_worked, amount, note);
-
-  res.json(db.prepare('SELECT * FROM attendance WHERE labour_id = ? AND date = ?').get(labour.id, date));
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (labour_id, date) DO UPDATE SET
+       base = EXCLUDED.base, extra = EXCLUDED.extra,
+       days_worked = EXCLUDED.days_worked, amount = EXCLUDED.amount, note = EXCLUDED.note
+     RETURNING *`,
+    [labour.id, date, base, extra, days_worked, amount, note]
+  );
+  res.json(rows[0]);
 });
 
 // remove an attendance record entirely
-app.delete('/api/attendance/:labourId/:date', (req, res) => {
-  const info = db
-    .prepare('DELETE FROM attendance WHERE labour_id = ? AND date = ?')
-    .run(req.params.labourId, req.params.date);
-  if (info.changes === 0) return res.status(404).json({ error: 'Attendance record not found' });
+app.delete('/api/attendance/:labourId/:date', async (req, res) => {
+  const { rowCount } = await query(
+    'DELETE FROM attendance WHERE labour_id = $1 AND date = $2',
+    [req.params.labourId, req.params.date]
+  );
+  if (rowCount === 0) return res.status(404).json({ error: 'Attendance record not found' });
   res.json({ ok: true });
 });
 
 /* ---------------- dashboard ---------------- */
 
-app.get('/api/dashboard', (req, res) => {
+app.get('/api/dashboard', async (req, res) => {
   const today = todayStr();
   const [wf, wt] = weekRange(today);
   const [mf, mt] = monthRange(today);
 
-  const q = (sql, ...args) => db.prepare(sql).get(...args);
+  const c = async (sql, ...args) => (await query(sql, args)).rows[0].c;
+  const s = async (sql, ...args) => (await query(sql, args)).rows[0].s;
+
   const stats = {
-    active_labours: q('SELECT COUNT(*) AS c FROM labours WHERE active = 1').c,
-    total_labours: q('SELECT COUNT(*) AS c FROM labours').c,
-    marked_today: q('SELECT COUNT(*) AS c FROM attendance WHERE date = ?', today).c,
-    present_today: q('SELECT COUNT(*) AS c FROM attendance WHERE date = ? AND days_worked > 0', today).c,
-    today_wages: q('SELECT COALESCE(SUM(amount), 0) AS s FROM attendance WHERE date = ?', today).s,
-    week_wages: q('SELECT COALESCE(SUM(amount), 0) AS s FROM attendance WHERE date BETWEEN ? AND ?', wf, wt).s,
-    month_wages: q('SELECT COALESCE(SUM(amount), 0) AS s FROM attendance WHERE date BETWEEN ? AND ?', mf, mt).s,
-    total_wages: q('SELECT COALESCE(SUM(amount), 0) AS s FROM attendance').s,
+    active_labours: await c('SELECT COUNT(*) AS c FROM labours WHERE active = 1'),
+    total_labours: await c('SELECT COUNT(*) AS c FROM labours'),
+    marked_today: await c('SELECT COUNT(*) AS c FROM attendance WHERE date = $1', today),
+    present_today: await c('SELECT COUNT(*) AS c FROM attendance WHERE date = $1 AND days_worked > 0', today),
+    today_wages: await s('SELECT COALESCE(SUM(amount), 0) AS s FROM attendance WHERE date = $1', today),
+    week_wages: await s('SELECT COALESCE(SUM(amount), 0) AS s FROM attendance WHERE date BETWEEN $1 AND $2', wf, wt),
+    month_wages: await s('SELECT COALESCE(SUM(amount), 0) AS s FROM attendance WHERE date BETWEEN $1 AND $2', mf, mt),
+    total_wages: await s('SELECT COALESCE(SUM(amount), 0) AS s FROM attendance'),
   };
   stats.unmarked_today = Math.max(0, stats.active_labours - stats.marked_today);
 
