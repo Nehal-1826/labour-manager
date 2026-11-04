@@ -1,0 +1,41 @@
+# Render Blueprint for Labour Manager (Option A: single origin)
+#
+# Deploy: Render Dashboard -> New -> Blueprint -> select this repository.
+# Render will ask for the values of every `sync: false` variable — fill them
+# from your Supabase dashboard (they are stored as secrets, never in Git).
+#
+#   SUPABASE_URL              -> Project Settings -> API (Project URL)
+#   SUPABASE_PUBLISHABLE_KEY  -> Project Settings -> API (publishable/anon key)
+#   ADMIN_UID                 -> Authentication -> Users -> your admin's UID
+#   DATABASE_URL              -> Project Settings -> Database -> Connection string.
+#     Use the SESSION POOLER string (IPv4-ready): it is the only guaranteed
+#     reachable path from cloud hosts. Example host shape:
+#     aws-0-<region>.pooler.supabase.com:5432  (user: postgres.<project-ref>)
+#
+# The build compiles the React frontend (client/dist) and the start command
+# serves BOTH the static frontend and the API from one Node process —
+# single origin, so no CORS configuration is required.
+#
+# Free plan note: the service sleeps after ~15 minutes without traffic and
+# wakes on the next request (cold start ~30-60s).
+
+services:
+  - type: web
+    name: labour-manager
+    runtime: node
+    plan: free
+    healthCheckPath: /health
+    autoDeploy: true
+    buildCommand: npm install && npm run build
+    startCommand: npm run start:server
+    envVars:
+      - key: NODE_VERSION
+        value: 22.12.0
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: ADMIN_UID
+        sync: false
+      - key: DATABASE_URL
+        sync: false

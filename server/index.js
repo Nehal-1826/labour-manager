@@ -1,10 +1,15 @@
 const express = require('express');
+const path = require('node:path');
 const { query } = require('./db');
 const requireAdmin = require('./auth');
 const { buildLabourReport, buildMonthlyReport, buildYearlyReport } = require('./reports');
 
 const app = express();
 app.use(express.json());
+
+// unauthenticated health probe for platform monitors (outside /api on purpose:
+// everything under /api is admin-authenticated)
+app.get('/health', (req, res) => res.json({ ok: true }));
 
 // every /api route requires a verified administrator session (Bearer token).
 // route handlers below are untouched in logic — they only ever see
@@ -397,6 +402,21 @@ app.get('/api/dashboard', async (req, res) => {
 });
 
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
+
+/* ---------------- production frontend (single origin) ----------------
+ * Serves the built React app (client/dist) from this same origin, so no CORS
+ * configuration is needed: the browser talks to /api same-origin. The SPA
+ * fallback below catches any non-API GET (client-side route or deep link) and
+ * returns index.html; API requests never reach it. */
+const CLIENT_DIST = path.join(__dirname, '..', 'client', 'dist');
+app.use(express.static(CLIENT_DIST));
+
+app.use((req, res, next) => {
+  if (req.method !== 'GET' || req.path.startsWith('/api')) return next();
+  res.sendFile(path.join(CLIENT_DIST, 'index.html'), (err) => {
+    if (err) res.status(503).json({ error: 'Frontend build not found — run npm run build first' });
+  });
+});
 
 app.use((err, req, res, next) => {
   console.error(err);
